@@ -1,0 +1,2 @@
+# AraCare
+Triage Healthcare system
