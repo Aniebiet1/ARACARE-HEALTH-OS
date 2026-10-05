@@ -13,10 +13,21 @@ DRUG_CLASSES = {
 }
 
 
+# How allergies are actually written down at reception ("sulfa drugs", "NSAIDs"): words that name the class itself
+CLASS_ALIASES = {
+    "penicillin": ["penicillin"],
+    "sulfonamide": ["sulfa", "sulpha", "sulfonamide", "sulphonamide"],
+    "nsaid": ["nsaid", "non-steroidal", "nonsteroidal", "anti-inflammatory drug"],
+    "cephalosporin": ["cephalosporin"],
+    "macrolide": ["macrolide"],
+    "quinolone": ["quinolone"],   # also matches "fluoroquinolone"
+}
+
+
 def drug_class_of(name: str) -> str | None:
     n = name.lower()
     for cls, members in DRUG_CLASSES.items():
-        if any(m in n for m in members):
+        if any(m in n for m in members + CLASS_ALIASES.get(cls, [])):
             return cls
     return None
 
@@ -26,7 +37,9 @@ def allergy_conflicts(drug_name: str, allergies) -> list:
     cls = drug_class_of(drug_name)
     hits = []
     for a in allergies:
-        if (a.drug_class and cls and a.drug_class.lower() == cls) or \
+        # re-derive the class from the name: records saved before an alias existed still match
+        a_cls = (a.allergen_name and drug_class_of(a.allergen_name)) or (a.drug_class or "").lower()
+        if (cls and a_cls == cls) or \
            (a.allergen_name and a.allergen_name.lower() in drug_name.lower()):
             hits.append(a)
     return hits

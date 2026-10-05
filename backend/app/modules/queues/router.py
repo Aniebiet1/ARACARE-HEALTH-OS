@@ -1,13 +1,11 @@
-from datetime import date
-
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ...db import get_db
+from ...db import get_db, local_today
 from ...realtime import hub
-from ..core.models import Staff
+from ..core.models import Facility, Staff
 from ..core.security import audit, require
 from ..registration.models import Patient
 from ..registration.service import age_years
@@ -19,8 +17,9 @@ DEPTS = {"TRIAGE", "OPD-GEN"}
 
 
 def _view(t: Ticket, p: Patient) -> dict:
+    tier = service.effective_tier(t) if t.status == "waiting" else t.priority_tier
     return {"id": t.id, "ticket": t.ticket_number, "department": t.department, "status": t.status,
-            "priority": t.priority_tier, "aged": t.priority_aged, "visit_id": t.visit_id,
+            "priority": tier, "aged": tier != t.priority_tier or t.priority_aged, "visit_id": t.visit_id,
             "patient_id": p.id, "patient_name": f"{p.surname} {p.first_name}",
             "patient_number": p.patient_number, "age": age_years(p.date_of_birth), "gender": p.gender,
             "waiting_since": t.entered_waiting_at.isoformat(), "called_at": t.called_at.isoformat() if t.called_at else None,
@@ -40,10 +39,9 @@ def list_queue(dept: str, staff: Staff = Depends(require("reception", "nurse", "
     dept = _dept(dept)
     order = service.waiting_tickets(db, staff.facility_id, dept)
     active = db.scalars(select(Ticket).where(Ticket.facility_id == staff.facility_id, Ticket.department == dept,
-                                             Ticket.day == date.today(),
+                                             Ticket.day == local_today(),
                                              Ticket.status.in_(("called", "in_service", "no_show")))
                         .order_by(Ticket.called_at)).all()
-    db.commit()  # persists aging promotions
     pats = {p.id: p for p in db.scalars(select(Patient).where(Patient.id.in_([t.patient_id for t in order + active]))).all()}
     return {"department": dept, "active": [_view(t, pats[t.patient_id]) for t in active],
             "waiting": [_view(t, pats[t.patient_id]) for t in order], "stats": service.stats(db, staff.facility_id, dept)}
@@ -71,7 +69,7 @@ def call_next(dept: str, body: CallIn, staff: Staff = Depends(require("nurse", "
 
 
 def _ticket(db: Session, staff: Staff, ticket_id: str) -> Ticket:
-    t = db.get(Ticket, ticket_id)
+    t = db.get(Ticket, ticket_id, with_for_update=True)   # the sweeper may be changing the same ticket
     if not t or t.facility_id != staff.facility_id:
         raise HTTPException(404, "Ticket not found")
     return t
@@ -107,13 +105,15 @@ def journey(visit_id: str, staff: Staff = Depends(require("reception", "nurse", 
 
 @router.get("/display/{dept}")
 def tv_display(dept: str, db: Session = Depends(get_db)):
-    """Public (waiting-room TV). Ticket numbers + initials only -- no PHI."""
+    """Public (waiting-room TV, no login). Shows ticket number, first initial and surname, as in the design,
+    and nothing clinical. Read-only."""
     dept = _dept(dept)
-    from ..core.models import Facility
     fac = db.scalar(select(Facility))
+    if not fac:
+        raise HTTPException(503, "Facility not set up")
     fid = fac.id
     called = db.scalars(select(Ticket).where(Ticket.facility_id == fid, Ticket.department == dept,
-                                             Ticket.day == date.today(), Ticket.status.in_(("called", "in_service")))
+                                             Ticket.day == local_today(), Ticket.status.in_(("called", "in_service")))
                         .order_by(Ticket.called_at.desc())).all()
     waiting = service.waiting_tickets(db, fid, dept)
     pats = {p.id: p for p in db.scalars(select(Patient).where(Patient.id.in_([t.patient_id for t in called + waiting]))).all()}
@@ -123,13 +123,14 @@ def tv_display(dept: str, db: Session = Depends(get_db)):
         return {"ticket": t.ticket_number, "priority": t.priority_tier, "status": t.status,
                 "counter": t.counter_name, "who": f"{p.first_name[:1]}. {p.surname.upper()}"}
     st = service.stats(db, fid, dept)
+    next_up = waiting[:6]
+    etas = service.estimated_waits(db, fid, dept, len(next_up))
     return {"facility": fac.name, "department": dept, "now_serving": [short(t) for t in called[:6]],
-            "next_up": [short(t) for t in waiting[:6]], "stats": st}
+            "next_up": [{**short(t), "eta_min": m} for t, m in zip(next_up, etas)], "stats": st}
 
 
 @router.websocket("/ws/queue")
 async def ws_queue(ws: WebSocket):
-    hub.loop = __import__("asyncio").get_running_loop()
     await hub.join("queue", ws)
     try:
         while True:

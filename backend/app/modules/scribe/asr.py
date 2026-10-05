@@ -7,6 +7,7 @@ from ...config import settings
 log = logging.getLogger("aracare.scribe.asr")
 _model = None
 _lock = threading.Lock()
+_warned = False
 
 # Biasing the decoder toward local clinical vocabulary noticeably helps accented speech.
 MEDICAL_PROMPT = ("Nigerian hospital consultation. Malaria, typhoid, hypertension, Amlodipine, Artemether-Lumefantrine, "
@@ -20,7 +21,11 @@ def engine_name() -> str:
     try:
         import faster_whisper  # noqa: F401
         return f"faster-whisper:{settings.whisper_model}"
-    except ImportError:
+    except Exception as e:  # not installed, or installed but broken (e.g. ctranslate2.dll missing on Windows)
+        global _warned
+        if not isinstance(e, ImportError) and not _warned:
+            log.warning("faster-whisper is installed but cannot load (%s); dictation falls back to typing", e)
+            _warned = True
         return "none"
 
 

@@ -30,8 +30,12 @@ def map_icd10(db: Session, terms: list[str]) -> list[dict]:
     return out
 
 
-def mark_accepted(db: Session, session_id: str, staff: Staff):
+def mark_accepted(db: Session, session_id: str, staff: Staff, visit_id: str) -> bool:
+    """False if the session isn't this visit's draft. Saving the same draft again (re-saving a note) is fine."""
     s = db.get(ScribeSession, session_id)
-    if s and s.status == "ai_draft":
+    if not s or s.visit_id != visit_id or s.facility_id != staff.facility_id or s.status == "discarded":
+        return False
+    if s.status == "ai_draft":
         s.status, s.accepted_at = "accepted", utcnow()
         audit(db, staff, "scribe_accepted", "scribe_session", s.id, s.patient_id)
+    return True

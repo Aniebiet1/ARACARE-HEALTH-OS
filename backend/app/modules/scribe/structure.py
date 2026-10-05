@@ -154,6 +154,7 @@ def _ollama(role: str, transcript: str, context: str) -> dict:
     schema = (NurseDraft if role == "nurse" else DoctorDraft).model_json_schema()
     r = httpx.post(f"{settings.ollama_url}/api/chat", timeout=settings.ollama_timeout, json={
         "model": settings.ollama_model, "stream": False, "format": schema,
+        "think": False,  # thinking models (qwen3) otherwise burn the timeout reasoning before the JSON
         "options": {"temperature": 0, "num_ctx": 4096},
         "messages": [{"role": "system", "content": NURSE_SYSTEM if role == "nurse" else DOCTOR_SYSTEM},
                      {"role": "user", "content": f"CONTEXT (do not copy into the note unless dictated):\n{context}\n\n"

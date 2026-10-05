@@ -1,0 +1,43 @@
+# One facility server: PostgreSQL + the AraCare API on the hospital LAN.
+#   cp .env.example .env    # then fill in the secrets
+#   docker compose up -d --build
+# The web client (aracare-frontend) is built separately and pointed at http://<server>:8000.
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aracare
+      POSTGRES_USER: aracare
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aracare -d aracare"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      args:
+        WITH_SCRIBE: ${WITH_SCRIBE:-0}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      ARACARE_DATABASE_URL: postgresql+psycopg2://aracare:${POSTGRES_PASSWORD}@db:5432/aracare
+      ARACARE_OLLAMA_URL: ${ARACARE_OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"     # reach Ollama running on the host machine
+    ports:
+      - "8000:8000"
+    volumes:
+      - appdata:/data                           # patient photos, Whisper model cache
+
+volumes:
+  pgdata:
+  appdata:

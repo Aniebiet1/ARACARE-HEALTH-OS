@@ -18,6 +18,8 @@ from .models import (AllergyRecord, ClinicalNote, Diagnosis, Icd10, LabOrder, Me
 
 router = APIRouter(prefix="/ehr", tags=["ehr"])
 CLINICAL = ("nurse", "doctor")
+SEVERITIES = ("mild", "moderate", "severe", "life_threatening")
+CLOSED = ("completed", "abandoned")
 
 
 def _visit(db: Session, staff: Staff, visit_id: str) -> Visit:
@@ -27,10 +29,11 @@ def _visit(db: Session, staff: Staff, visit_id: str) -> Visit:
     return v
 
 
-def _accept_scribe(db, session_id, staff):
+def _accept_scribe(db, session_id, staff, visit: Visit):
     if session_id:
         from ..scribe import service as scribe_service
-        scribe_service.mark_accepted(db, session_id, staff)
+        if not scribe_service.mark_accepted(db, session_id, staff, visit.id):
+            raise HTTPException(422, "That dictation draft does not belong to this visit")
 
 
 # ------------------------------------------------------------------ reference data
@@ -95,10 +98,15 @@ def add_allergy(patient_id: str, body: AllergyIn, staff: Staff = Depends(require
     p = db.get(Patient, patient_id)
     if not p or p.facility_id != staff.facility_id:
         raise HTTPException(404, "Patient not found")
+    if body.severity not in SEVERITIES:
+        raise HTTPException(422, f"severity must be one of {', '.join(SEVERITIES)}")
+    if not body.allergen_name.strip():
+        raise HTTPException(422, "allergen_name is required")
     a = AllergyRecord(patient_id=p.id, allergen_name=body.allergen_name, reaction=body.reaction,
                       severity=body.severity, recorded_by=staff.id,
                       drug_class=rules.drug_class_of(body.allergen_name) or body.allergen_name.lower())
     db.add(a)
+    db.flush()
     audit(db, staff, "create", "allergy", a.id, p.id)
     db.commit()
     return {"id": a.id}
@@ -132,6 +140,8 @@ def _vitals_view(v: Vitals) -> dict:
 def save_triage(visit_id: str, body: TriageIn, staff: Staff = Depends(require("nurse", "doctor")),
                 db: Session = Depends(get_db)):
     v = _visit(db, staff, visit_id)
+    if v.status in CLOSED:
+        raise HTTPException(409, f"This visit is {v.status}; check the patient in again")
     if body.triage_priority not in ("NORMAL", "HIGH", "EMERGENCY"):
         raise HTTPException(422, "triage_priority must be NORMAL, HIGH or EMERGENCY")
     data = body.model_dump()
@@ -145,7 +155,7 @@ def save_triage(visit_id: str, body: TriageIn, staff: Staff = Depends(require("n
                                          "spo2", "weight_kg", "height_cm", "pain_score", "chief_complaint")})
     db.add(vit)
     db.flush()
-    _accept_scribe(db, body.scribe_session_id, staff)
+    _accept_scribe(db, body.scribe_session_id, staff, v)
     if critical:
         publish(db, "CriticalVitals", {"visit_id": v.id, "flags": [f for f in flags if f["level"] == "critical"]},
                 v.facility_id, room="queue")
@@ -217,7 +227,7 @@ def save_note(visit_id: str, body: NoteIn, staff: Staff = Depends(require("docto
     n.template_used = body.template_used
     if body.scribe_session_id:
         n.source, n.scribe_session_id = "ai_scribe", body.scribe_session_id
-        _accept_scribe(db, body.scribe_session_id, staff)
+        _accept_scribe(db, body.scribe_session_id, staff, v)
     for d in db.scalars(select(Diagnosis).where(Diagnosis.note_id == n.id)).all():
         db.delete(d)
     for i, code in enumerate(dict.fromkeys(body.diagnoses)):
@@ -233,8 +243,8 @@ def save_note(visit_id: str, body: NoteIn, staff: Staff = Depends(require("docto
 
 
 class LabIn(BaseModel):
-    test_code: str
-    test_name: str
+    test_code: str = Field(min_length=1, max_length=20)
+    test_name: str = Field(min_length=1, max_length=100)
     priority: str = "routine"
 
 
@@ -246,13 +256,14 @@ def add_lab(visit_id: str, body: LabIn, staff: Staff = Depends(require("doctor")
     _editable_note(db, v, staff)
     o = LabOrder(visit_id=v.id, patient_id=v.patient_id, ordered_by=staff.id, **body.model_dump())
     db.add(o)
+    db.flush()
     audit(db, staff, "create", "lab_order", o.id, v.patient_id)
     db.commit()
     return {"id": o.id}
 
 
 class RxIn(BaseModel):
-    drug_name: str
+    drug_name: str = Field(min_length=2, max_length=100)
     dose: str | None = None
     frequency: str | None = None
     duration_days: int | None = Field(None, ge=1, le=365)
@@ -280,6 +291,7 @@ def add_rx(visit_id: str, body: RxIn, staff: Staff = Depends(require("doctor")),
                         **body.model_dump(exclude={"allergy_override_reason"}),
                         allergy_override_reason=body.allergy_override_reason if hits else None)
     db.add(m)
+    db.flush()
     if hits:
         audit(db, staff, "allergy_override", "medication_order", m.id, v.patient_id, detail=body.allergy_override_reason)
     audit(db, staff, "create", "medication_order", m.id, v.patient_id)

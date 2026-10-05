@@ -92,3 +92,10 @@ def test_public_tv_display_has_no_full_names(client, auth, make_patient, check_i
     tv = client.get("/api/display/TRIAGE").json()            # no auth: it's a TV
     assert tv["now_serving"][0]["who"] == "A. OKONKWO"
     assert "Adaeze" not in str(tv) and "phone" not in str(tv)
+
+
+def test_tv_shows_estimated_wait_for_each_waiting_patient(client, auth, make_patient, check_in):
+    _drain_triage(client, auth)
+    _make_waiting(client, auth, make_patient, check_in, 3)
+    etas = [t["eta_min"] for t in client.get("/api/display/TRIAGE").json()["next_up"]]
+    assert len(etas) == 3 and etas == sorted(etas) and etas[-1] > 0   # later in the queue never waits less

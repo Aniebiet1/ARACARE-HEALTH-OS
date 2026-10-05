@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ...config import settings
 from ...db import get_db
 from ..core.models import Consent, Staff
 from ..core.security import audit, require
@@ -16,6 +17,7 @@ from . import asr, service, structure
 from .models import ScribeSession
 
 router = APIRouter(prefix="/scribe", tags=["ai-scribe"])
+AUDIO_EXT = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4", ".aac", ".flac"}
 ROLES = ("nurse", "doctor")
 
 
@@ -57,11 +59,18 @@ async def transcribe(visit_id: str = Form(...), language: str = Form("en"), audi
     if not asr.available():
         raise HTTPException(503, "Local Whisper is not installed (pip install faster-whisper). "
                                  "You can type or paste the dictation instead.")
-    suffix = os.path.splitext(audio.filename or "")[1] or ".webm"
+    suffix = os.path.splitext(audio.filename or "")[1].lower()
+    suffix = suffix if suffix in AUDIO_EXT else ".webm"
+    limit = settings.max_audio_mb * 1024 * 1024
+    data = await audio.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, f"Recording is larger than {settings.max_audio_mb} MB; dictate in shorter parts")
+    if not data:
+        raise HTTPException(422, "Recording is empty")
     fd, path = tempfile.mkstemp(suffix=suffix)
     try:
         with os.fdopen(fd, "wb") as f:
-            f.write(await audio.read())
+            f.write(data)
         from starlette.concurrency import run_in_threadpool
         text = await run_in_threadpool(asr.transcribe, path, language or None)
     finally:
@@ -88,6 +97,8 @@ def make_draft(body: DraftIn, staff: Staff = Depends(require(*ROLES)), db: Sessi
     text = body.transcript.strip()
     if len(text) < 5:
         raise HTTPException(422, "Transcript is empty")
+    if len(text) > 20000:
+        raise HTTPException(413, "Transcript is too long; draft it in shorter parts")
     p = db.get(Patient, v.patient_id)
     allergies = db.scalars(select(AllergyRecord).where(AllergyRecord.patient_id == p.id)).all()
     vit = db.scalar(select(Vitals).where(Vitals.visit_id == v.id).order_by(Vitals.recorded_at.desc()))
@@ -100,6 +111,7 @@ def make_draft(body: DraftIn, staff: Staff = Depends(require(*ROLES)), db: Sessi
     s = ScribeSession(facility_id=v.facility_id, visit_id=v.id, patient_id=p.id, staff_id=staff.id, role=role,
                       transcript=text, draft=draft, dropped=dropped, engine={"asr": asr.engine_name(), "llm": llm})
     db.add(s)
+    db.flush()
     audit(db, staff, "scribe_draft", "scribe_session", s.id, p.id, detail=f"llm={llm}")
     db.commit()
     return {"session_id": s.id, "status": s.status, "role": role, "draft": draft, "icd10_suggestions": suggestions,
@@ -111,6 +123,8 @@ def discard(session_id: str, staff: Staff = Depends(require(*ROLES)), db: Sessio
     s = db.get(ScribeSession, session_id)
     if not s or s.facility_id != staff.facility_id:
         raise HTTPException(404, "Session not found")
+    if s.status != "ai_draft":
+        raise HTTPException(409, f"This draft is already {s.status}")
     s.status = "discarded"
     audit(db, staff, "scribe_discarded", "scribe_session", s.id, s.patient_id)
     db.commit()

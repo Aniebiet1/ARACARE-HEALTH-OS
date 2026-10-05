@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...db import Base, uid, utcnow
@@ -9,6 +9,12 @@ class Facility(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     name: Mapped[str] = mapped_column(String(200))
     state_code: Mapped[str] = mapped_column(String(3))
+    # branding printed on patient receipts
+    address: Mapped[str | None] = mapped_column(String(300))
+    phone: Mapped[str | None] = mapped_column(String(60))
+    email: Mapped[str | None] = mapped_column(String(120))
+    motto: Mapped[str | None] = mapped_column(String(160))
+    logo_path: Mapped[str | None] = mapped_column(String(300))
 
 
 class Staff(Base):
@@ -20,6 +26,18 @@ class Staff(Base):
     role: Mapped[str] = mapped_column(String(20))  # reception | nurse | doctor | admin
     password_hash: Mapped[str] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # bumped on password change/reset or deactivation: every token issued before is rejected
+    token_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    locked_until = mapped_column(DateTime, nullable=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+
+
+class Counter(Base):
+    """Named gap-free sequences (patient numbers). Incremented under a row lock, never by COUNT(*)."""
+    __tablename__ = "counters"
+    key: Mapped[str] = mapped_column(String(60), primary_key=True)
+    value: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class AuditLog(Base):

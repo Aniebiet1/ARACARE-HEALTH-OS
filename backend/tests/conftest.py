@@ -6,6 +6,7 @@ os.environ["ARACARE_DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 os.environ["ARACARE_DATA_DIR"] = f"{_tmp}/data"
 os.environ["ARACARE_LLM_ENGINE"] = "rules"      # tests never need Ollama
 os.environ["ARACARE_ASR_ENGINE"] = "none"
+os.environ["ARACARE_SECRET_KEY"] = "test-secret-key-that-is-long-enough-for-hs256"
 
 import pytest
 from fastapi.testclient import TestClient
