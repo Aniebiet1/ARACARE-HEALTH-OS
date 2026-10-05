@@ -1,0 +1,37 @@
+{
+  "titanic": [
+    {
+      "model": "Logistic Regression",
+      "test_accuracy": 0.816,
+      "cv_accuracy": 0.807
+    },
+    {
+      "model": "Decision Tree",
+      "test_accuracy": 0.799,
+      "cv_accuracy": 0.807
+    },
+    {
+      "model": "Random Forest",
+      "test_accuracy": 0.804,
+      "cv_accuracy": 0.822
+    }
+  ],
+  "housing": [
+    {
+      "model": "Linear Regression",
+      "MAE": 50888.66,
+      "RMSE": 72668.538,
+      "R2": 0.597
+    },
+    {
+      "model": "Random Forest",
+      "MAE": 32230.29,
+      "RMSE": 50131.43,
+      "R2": 0.808
+    }
+  ],
+  "iris": {
+    "best_k": 5,
+    "accuracy": 0.978
+  }
+}
