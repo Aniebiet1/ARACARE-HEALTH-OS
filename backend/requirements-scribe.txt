@@ -1,0 +1,3 @@
+# Local speech-to-text (OpenAI Whisper weights, MIT licence) -- no API cost.
+# Model weights download on first use (~460 MB for "small").
+faster-whisper>=1.0
