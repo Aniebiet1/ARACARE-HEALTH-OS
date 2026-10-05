@@ -93,16 +93,17 @@ def ds_workflow():
 
 
 def org_chart():
-    fig, ax = canvas(12, 5.2, "Acadeva: Organisational Structure (simplified)")
-    ceo = box(ax, 44, 34, 32, 9, "Founders / Management", "purple", 11, True)
+    fig, ax = canvas(12, 5.6, "Acadeva: Organisational Structure (simplified)")
+    ceo = box(ax, 44, 38, 32, 9, "Founders / Management", "purple", 11, True)
     units = [("Engineering\n(web, mobile, desktop)", "blue"), ("Machine Learning\n(AI content tools)", "green"),
              ("Design", "gold"), ("Marketing &\nCommunity", "red")]
-    ub = [box(ax, 4 + i * 29, 19, 25, 10, t, c, 10) for i, (t, c) in enumerate(units)]
+    ub = [box(ax, 4 + i * 29, 21, 25, 10, t, c, 10) for i, (t, c) in enumerate(units)]
     for b in ub:
         arrow(ax, bot(ceo), top(b))
-    sup = box(ax, 30, 2, 60, 9, "SIWES interns: Data Science, Machine Learning and Web Development tracks\n"
-              "(supervised by John Henry)", "grey", 10)
-    arrow(ax, bot(ub[0]), top(sup)); arrow(ax, bot(ub[1]), top(sup))
+    sup = box(ax, 4, 2, 54, 11, "SIWES interns\nData Science, Machine Learning and\nWeb Development tracks (supervisor: John Henry)",
+              "grey", 9.5)
+    arrow(ax, bot(ub[0]), (bot(ub[0])[0], 13.5))
+    arrow(ax, bot(ub[1]), (bot(ub[1])[0], 13.5))
     done(fig, "dg_org_chart")
 
 

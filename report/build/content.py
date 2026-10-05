@@ -199,46 +199,8 @@ CH2 = [
           "label, and the **PhiUSIIL Phishing URL Dataset**, which contains URLs with a label. The two datasets used "
           "different column names and, importantly, different label conventions, so I wrote a loader that renames the "
           "columns, normalises the labels so that 1 always means phishing and 0 always means legitimate, adds a `source` "
-          "column (email or URL), and merges both into one table (Figure 2.1). Keeping the source column turned out to be "
+          "column (email or URL), and merges both into one table. Keeping the source column turned out to be "
           "valuable later, because it allowed metrics to be broken down per source."),
-    ("fig", S + "it_merge.png", "Loading, normalising and merging the email and URL datasets into one table."),
-    ("p", "On the EdTech side, data management meant organising academic materials. Past questions and books are tagged by "
-          "school, department and course so that students can find them, and the AI tools described in Section 2.6 "
-          "generate much of this metadata automatically. I worked on the subject and category taxonomy used to classify "
-          "uploaded books, which is the backbone of how the library is organised."),
-    ("ul", ["Practical activity: researched, downloaded and merged phishing email and URL datasets; organised the project as data/, saved_models/ and utils/ folders; refined the book subject/category taxonomy.",
-            "Tools/technologies used: Python, pandas, CSV files, Git.",
-            "Skills acquired: dataset selection, schema alignment, label normalisation, project and data organisation."]),
-
-    ("h2", "2.2 Data Cleaning and Analysis"),
-    ("p", "Raw data is almost never ready for analysis. It contains missing values, duplicates, inconsistent formats and "
-          "errors. Data cleaning is the process of detecting and fixing these problems, and it usually takes more time "
-          "than modelling. The principle of \"garbage in, garbage out\" was very clear in my work: a phishing model "
-          "trained on duplicated or mislabelled rows reports accuracy it cannot deliver in production."),
-    ("p", "For the phishing project I removed empty texts and exact duplicates after merging, stripped whitespace, cast "
-          "labels to integers, and checked the class balance of each source. After the model went live, I added request "
-          "logging to the API and wrote a script to extract **low-confidence predictions** for manual review. Reviewing "
-          "these with the team lead revealed recurring false positives, which I documented as edge cases for the next "
-          "retraining cycle. This taught me that cleaning and analysis do not stop when a model is deployed."),
-    ("p", "For the EdTech tools, the input data is documents. Many uploaded PDFs are large or scanned, so they are "
-          "compressed and their text is extracted (with OCR for scanned pages) before being sent to the language model. "
-          "I investigated user reports that handwritten books were often mis-tagged as printed. I collected a small sample "
-          "of handwritten and printed pages, compared the tool's behaviour on both, adjusted the instructions and few-shot "
-          "examples, and re-tested until handwritten detection improved."),
-    ("ul", ["Practical activity: de-duplication and label checks; low-confidence prediction review; handwritten vs. printed sample analysis.",
-            "Tools/technologies used: pandas, Python logging, Jupyter Notebook, PDF text extraction.",
-            "Skills acquired: data quality checks, error analysis, building small evaluation sets from real user reports."]),
-
-    ("h2", "2.3 Data Visualisation"),
-    ("p", "Data visualisation turns numbers into pictures that people can understand quickly. A good chart answers one "
-          "question clearly, uses the right type of chart for the data (bars to compare categories, lines for trends over "
-          "time, histograms for distributions, scatter plots for relationships) and avoids clutter."),
-    ("p", "In week 18 the content team asked for a simple way to see what kinds of books were being uploaded. I gathered "
-          "their requirements, wrote a script that aggregates the category and subject fields produced by Acadeva Magic, "
-          "and built a bar-chart view of the category distribution (Figure 2.2). I then added the distribution of "
-          "topic-relevance scores from the Book Topic Ranker to the same view and presented it to the content team, who "
-          "used it to decide which subjects needed more materials."),
-    ("fig", S + "it_analytics.png", "Aggregating Acadeva Magic output into a category-distribution chart for the content team."),
     ("ul", ["Practical activity: built the content analytics view (category distribution and relevance-score distribution).",
             "Tools/technologies used: pandas, Matplotlib, Seaborn.",
             "Skills acquired: choosing chart types, gathering requirements from non-technical users, presenting findings."]),
@@ -251,25 +213,25 @@ CH2 = [
     ("p", "I scaffolded the serving application with **FastAPI**, replacing an earlier plan to use Flask, because FastAPI "
           "validates requests automatically with Pydantic and generates interactive documentation at `/docs`. I built a "
           "`/health` endpoint and a `/predict` endpoint, with the model loading code in `utils/model_utils.py` (Figure "
-          "2.3). Two later improvements came from measuring rather than guessing. Profiling in week 14 showed that the "
+          "{fig:api}). Two later improvements came from measuring rather than guessing. Profiling in week 14 showed that the "
           "vectoriser was being rebuilt on every request, so I moved model loading to start-up, which gave a clear "
           "response-time improvement in simple load tests. In week 15 I tightened the request schema with maximum length "
           "and required-field rules, added rate-limiting middleware, and checked that error responses never leak internal "
           "stack traces."),
-    ("fig", S + "it_api.png", "FastAPI service for the phishing model with Pydantic validation, logging and rate limiting."),
+    ("fig", S + "it_api.png", "FastAPI service for the phishing model with Pydantic validation, logging and rate limiting.", {"id": "api"}),
     ("h3", "Automated testing"),
     ("p", "In week 12 I set up **pytest** for the project. The tests cover model loading, phishing and legitimate inputs, "
-          "and edge cases such as empty text, very long text and non-ASCII characters (Figure 2.4). The new tests "
+          "and edge cases such as empty text, very long text and non-ASCII characters (Figure {fig:tests}). The new tests "
           "immediately uncovered two small bugs in the response schema, which I fixed. I also added a local test-runner "
           "script so the suite runs before each commit."),
-    ("fig", S + "it_tests.png", "Examples of the pytest suite written for the /predict endpoint."),
+    ("fig", S + "it_tests.png", "Examples of the pytest suite written for the /predict endpoint.", {"id": "tests"}),
     ("h3", "Shared helper for the AI tools"),
     ("p", "Acadeva's four AI content tools each repeated the same boilerplate for calling the Gemini API. In weeks 16 and "
           "17 I proposed and carried out a refactor that moved model initialisation, generation settings, JSON output and "
-          "error handling into one shared helper (Figure 2.5), then migrated all four tools to it and verified that their "
+          "error handling into one shared helper (Figure {fig:gemini}), then migrated all four tools to it and verified that their "
           "outputs were unchanged. This made the AI layer much easier to maintain, and it later made it easy to find and "
           "fix a conflict between two services that shared the same API rate limit."),
-    ("fig", S + "it_gemini.png", "The shared JavaScript helper used by Acadeva Magic, the Ranker, the Categorizer and Quithn."),
+    ("fig", S + "it_gemini.png", "The shared JavaScript helper used by Acadeva Magic, the Ranker, the Categorizer and Quithn.", {"id": "gemini"}),
     ("ul", ["Practical activity: FastAPI service, request logging, pytest suite, performance fix, input validation and rate limiting, shared Gemini helper, README and contribution docs.",
             "Tools/technologies used: Python, FastAPI, Pydantic, Uvicorn, pytest, joblib, JavaScript/Node.js, Gemini API, Git, Swagger UI.",
             "Skills acquired: API design, testing, profiling, secure input handling, refactoring, technical writing."]),
@@ -300,13 +262,13 @@ CH2 = [
           "Regression baseline evaluated on a **stratified** train/test split, so both sets keep the same proportion "
           "of phishing examples."),
     ("p", "I then extended the training script with a `get_model_candidates()` function that returns six TF-IDF "
-          "pipelines (Figure 2.6): Logistic Regression, Linear SVC, a Linear SVC wrapped in `CalibratedClassifierCV` (so "
+          "pipelines (Figure {fig:cand}): Logistic Regression, Linear SVC, a Linear SVC wrapped in `CalibratedClassifierCV` (so "
           "the API can return a meaningful confidence score, which a plain SVM does not provide), Multinomial Naive "
           "Bayes, an SGD classifier and a Passive-Aggressive classifier. A standard loop fits, times and evaluates every "
           "candidate on the same split, ranks them by a selectable metric with tie-breakers, writes everything to "
-          "`training_report.json`, and saves the winner with joblib. Figure 2.7 shows the whole pipeline."),
-    ("fig", S + "it_candidates.png", "Six candidate pipelines sharing one TF-IDF front end, and the stratified split."),
-    ("fig", F + "lb_phishing_pipeline.png", "Phishing detection model: training and serving pipeline (logbook sketch, weeks 3 to 7).", {"width": 4.6}),
+          "`training_report.json`, and saves the winner with joblib. Figure {fig:phish} shows the whole pipeline."),
+    ("fig", S + "it_candidates.png", "Six candidate pipelines sharing one TF-IDF front end, and the stratified split.", {"id": "cand"}),
+    ("fig", F + "lb_phishing_pipeline.png", "Phishing detection model: training and serving pipeline (logbook sketch, weeks 3 to 7).", {"id": "phish", "width": 4.6}),
     ("p", "The evaluation metrics were chosen for an imbalanced, security-sensitive problem. Accuracy alone is "
           "misleading, so the main selection metric was the **F1 score of the phishing class**:"),
     ("table", ["Metric", "Formula", "What it tells us"],
@@ -320,25 +282,25 @@ CH2 = [
     ("p", "Reviewing early results showed that the model missed disguised URLs such as `p4ypal.com` or "
           "`paypal.verify-123.xyz`. The public datasets simply did not contain enough of them. I wrote generators for "
           "**typosquatting** variants (character substitutions such as a to 4, o to 0, l to 1, m to rn and w to vv), "
-          "brand-in-subdomain spoofs and urgent-keyword domains (Figure 2.8), plus a curated list of real brand domains as "
+          "brand-in-subdomain spoofs and urgent-keyword domains (Figure {fig:aug}), plus a curated list of real brand domains as "
           "hard negatives so the model would not start flagging genuine sites. The augmentation set is controlled by a "
           "`--url-augmentation-weight` flag."),
-    ("fig", S + "it_augment.png", "Generating typosquatting and brand-spoofing URLs as hard training examples."),
+    ("fig", S + "it_augment.png", "Generating typosquatting and brand-spoofing URLs as hard training examples.", {"id": "aug"}),
     ("h3", "Safe retraining: champion and challenger"),
     ("p", "Retraining on new data should never make production worse. In week 13 I replaced the practice of overwriting "
-          "a single model file with timestamped model versions and a `promote_model.py` script (Figure 2.9). A newly "
+          "a single model file with timestamped model versions and a `promote_model.py` script (Figure {fig:promote}). A newly "
           "trained challenger replaces the production model only if it scores higher on the selection metric. I tested "
           "it with a deliberately weaker model to confirm that it correctly refused to promote."),
-    ("fig", S + "it_promote.png", "Champion/challenger promotion: the production model is only replaced by a better one."),
+    ("fig", S + "it_promote.png", "Champion/challenger promotion: the production model is only replaced by a better one.", {"id": "promote"}),
     ("h3", "Generative AI: Acadeva's content tools"),
     ("p", "From week 8 I joined the EdTech sub-team, which uses Google's Gemini models through carefully engineered "
-          "prompts. All four tools follow the same pattern (Figure 2.10): a book or article goes in with a system prompt, "
+          "prompts. All four tools follow the same pattern (Figure {fig:edtech}): a book or article goes in with a system prompt, "
           "and a structured JSON object comes out."),
     ("ul", ["Acadeva Magic: generates book metadata (title, description, course code, terms, subject, category, quiz type, handwritten and explicit-content flags) from an uploaded PDF. I improved the few-shot examples to reduce hallucinated course codes, fixed multi-course-code parsing, improved handwritten detection and tightened explicit-content handling.",
             "Book Topic Ranker: scores a book's relevance (0.00 to 1.00) against a fixed list of 140+ topics. I refined the topic list and the scoring-consistency instructions.",
             "Content Categorizer: assigns one category to an article or post using few-shot examples. I curated examples for local news and fixed mishandling of sponsored content.",
             "Quithn: generates a 25-question quiz with options, correct answer, feedback and difficulty from a chapter. I improved the difficulty and JSON-validation instructions and fixed a duplicate-answer-option bug."]),
-    ("fig", F + "lb_edtech_pipeline.png", "Acadeva EdTech AI content tools: the shared prompt-pipeline pattern (logbook sketch, weeks 8 to 10).", {"width": 4.6}),
+    ("fig", F + "lb_edtech_pipeline.png", "Acadeva EdTech AI content tools: the shared prompt-pipeline pattern (logbook sketch, weeks 8 to 10).", {"id": "edtech", "width": 4.6}),
     ("p", "The most important lesson from this work is that a language model's output must be treated as untrusted "
           "until it is validated: it can invent values that look plausible. Asking for structured JSON, giving clear "
           "few-shot examples, setting a low temperature and validating the output against a schema all reduce this risk. "
@@ -350,9 +312,9 @@ CH2 = [
     ("h2", "2.7 The Data Science Workflow"),
     ("p", "The most valuable thing I learned during the placement is not any single tool, but the **workflow** that "
           "connects them. A data science project is a cycle of well-defined steps, and skipping a step almost always "
-          "causes problems later. Figure 2.11 shows the workflow as I learned and practised it. It is closely related to "
+          "causes problems later. Figure {fig:dsw} shows the workflow as I learned and practised it. It is closely related to "
           "the industry-standard CRISP-DM process (Cross-Industry Standard Process for Data Mining)."),
-    ("fig", F + "dg_ds_workflow.png", "The data science workflow: eight steps in a cycle, with feedback loops."),
+    ("fig", F + "dg_ds_workflow.png", "The data science workflow: eight steps in a cycle, with feedback loops.", {"id": "dsw"}),
     ("ol", ["Define the problem: state the question in terms of a decision. \"Flag phishing messages before a student clicks them\" is a problem; \"use machine learning\" is not. Decide how success will be measured (for example, phishing-class F1).",
             "Collect data: find or gather data that can answer the question: files, databases, APIs, surveys or logs. Record where it came from and its licence.",
             "Clean and prepare: handle missing values, remove duplicates, fix types and inconsistent labels, and join sources. This step usually takes the most time.",
@@ -386,8 +348,8 @@ CH2 = [
           "missing embarkation ports were filled with the most common port, and the `deck` column (77% missing) was "
           "dropped. **Feature engineering.** I created `family_size` (siblings/spouses + parents/children + 1) and "
           "`is_child` (age under 13), encoded sex as 0/1 and one-hot encoded the port."),
-    ("fig", F + "bp_titanic_eda.png", "Titanic EDA: survival by sex and by class, and age distribution by outcome."),
-    ("p", "EDA (Figure 2.12) shows the famous \"women and children first\" pattern: 74.2% of women survived but only "
+    ("fig", F + "bp_titanic_eda.png", "Titanic EDA: survival by sex and by class, and age distribution by outcome.", {"id": "teda"}),
+    ("p", "EDA (Figure {fig:teda}) shows the famous \"women and children first\" pattern: 74.2% of women survived but only "
           "18.9% of men, and survival fell from 63.0% in first class to 24.2% in third class. I trained three models on an "
           "80/20 stratified split and also measured 5-fold cross-validated accuracy, which is more reliable on a small "
           "dataset (Table 2.3)."),
@@ -395,9 +357,9 @@ CH2 = [
      [["Logistic Regression", "81.6%", "80.7%"], ["Decision Tree (max depth 4)", "79.9%", "80.7%"],
       ["Random Forest (300 trees)", "80.4%", "**82.2%**"]],
      "Titanic results.", [2.6, 1.8, 2.1]),
-    ("fig", F + "bp_titanic_model.png", "Random Forest confusion matrix and feature importance for the Titanic model."),
+    ("fig", F + "bp_titanic_model.png", "Random Forest confusion matrix and feature importance for the Titanic model.", {"id": "tmod"}),
     ("p", "**Findings.** The Random Forest had the best cross-validated accuracy (82.2%). Its feature importance (Figure "
-          "2.13) confirms the EDA: sex is by far the strongest predictor, followed by fare, age and class. The confusion "
+          "{fig:tmod}) confirms the EDA: sex is by far the strongest predictor, followed by fare, age and class. The confusion "
           "matrix shows the model is better at recognising passengers who died (101 of 110) than those who survived "
           "(43 of 69), which is common when one class is larger."),
     ("h3", "2.8.2 Project 2: House Price Prediction"),
@@ -408,30 +370,30 @@ CH2 = [
     ("p", "**Cleaning and features.** 207 missing `total_bedrooms` values were filled with the median. Raw totals are "
           "not comparable between large and small districts, so I engineered ratios: rooms per household, bedrooms per "
           "room and population per household. The categorical `ocean_proximity` column was one-hot encoded."),
-    ("fig", F + "bp_housing_eda.png", "California housing EDA: value by location (point size = population) and income vs. value."),
-    ("p", "The map (Figure 2.14) shows that coastal districts around the Bay Area and Los Angeles are the most expensive, "
+    ("fig", F + "bp_housing_eda.png", "California housing EDA: value by location (point size = population) and income vs. value.", {"id": "heda"}),
+    ("p", "The map (Figure {fig:heda}) shows that coastal districts around the Bay Area and Los Angeles are the most expensive, "
           "and median income is strongly related to house value (correlation 0.69). Notice the horizontal line at "
           "$500,000: values above that were capped when the data was collected, a data quality issue that limits any "
           "model's accuracy at the top end."),
     ("table", ["Model", "MAE", "RMSE", "R²"],
      [["Linear Regression", "$50,889", "$72,669", "0.597"], ["Random Forest (150 trees)", "**$32,230**", "**$50,131**", "**0.808**"]],
      "House price results on the 20% test set.", [2.4, 1.3, 1.3, 1.0]),
-    ("fig", F + "bp_housing_model.png", "Random Forest predicted vs. actual house values (points near the red line are accurate).", {"width": 4.0}),
+    ("fig", F + "bp_housing_model.png", "Random Forest predicted vs. actual house values (points near the red line are accurate).", {"id": "hmod", "width": 4.0}),
     ("p", "**Findings.** The Random Forest explains about 81% of the variation in house values (R² = 0.808) and its "
           "average error is about $32,000, a 37% reduction compared with linear regression, because it can capture "
-          "non-linear effects such as location. Figure 2.15 shows the predictions cluster around the perfect-prediction "
+          "non-linear effects such as location. Figure {fig:hmod} shows the predictions cluster around the perfect-prediction "
           "line, with the largest errors at the $500,000 cap."),
     ("h3", "2.8.3 Project 3: Iris Flower Classification"),
     ("p", "**Problem.** Identify which of three species (setosa, versicolor or virginica) an iris flower belongs to, "
           "from four measurements: sepal length and width, and petal length and width. This is a multi-class "
           "classification problem and the classic first project in machine learning. **Data.** 150 flowers, 50 of each "
           "species, with no missing values."),
-    ("fig", F + "bp_iris_eda.png", "Pair plot of the four iris measurements, coloured by species.", {"width": 5.0}),
-    ("p", "The pair plot (Figure 2.16) shows that setosa is completely separated by petal size, while versicolor and "
+    ("fig", F + "bp_iris_eda.png", "Pair plot of the four iris measurements, coloured by species.", {"id": "ieda", "width": 5.0}),
+    ("p", "The pair plot (Figure {fig:ieda}) shows that setosa is completely separated by petal size, while versicolor and "
           "virginica overlap slightly. I used **K-Nearest Neighbours (KNN)**, which classifies a flower by the majority "
           "species of its k closest neighbours. To choose k, I tested every value from 1 to 20 on a stratified 70/30 "
-          "split (Figure 2.17)."),
-    ("fig", F + "bp_iris_model.png", "Choosing k for K-Nearest Neighbours, and the confusion matrix of the final model."),
+          "split (Figure {fig:imod})."),
+    ("fig", F + "bp_iris_model.png", "Choosing k for K-Nearest Neighbours, and the confusion matrix of the final model.", {"id": "imod"}),
     ("p", "**Findings.** With k = 5 the model classified 44 of the 45 test flowers correctly (97.8% accuracy). The only "
           "error was one virginica predicted as versicolor, exactly where the EDA showed the two species overlap."),
     ("table", ["Project", "Problem type", "Best model", "Result", "Key lesson"],
@@ -602,9 +564,8 @@ CH3 = [
           "duplicates by phone number and similar name."),
     ("p", "Searching is designed for real Nigerian data, where the same name is spelled in different ways "
           "(Okonkwo/Okonkow, Babatunde/Babtunde) and phone numbers are written as 0803..., +234803... or 234803.... "
-          "The search normalises phone numbers and scores each name token with a fuzzy string similarity (Figure "
-          "{fig:search}). A scanned QR code or typed patient number goes straight to the exact record."),
-    ("fig", S + "ac_search.png", "Phone normalisation and fuzzy name scoring for patient search (registration/service.py).", {"id": "search"}),
+          "The search normalises phone numbers and scores each name token with a fuzzy string similarity "
+          "(`difflib.SequenceMatcher`), so near-misses still match. A scanned QR code or typed patient number goes straight to the exact record."),
     ("p", "Checking in creates a Visit with a reason (new complaint, follow-up, antenatal, emergency) and a payment track "
           "(out of pocket, HMO, government, staff, waiver; waivers need administrator approval). The `VisitCheckedIn` "
           "event starts the journey and issues a triage ticket, and the receptionist prints a receipt with the ticket "
@@ -663,31 +624,27 @@ CH3 = [
             "Graceful degradation: if Whisper is not installed, dictation can be typed or pasted; if Ollama is not running, a rule-based extractor takes over. The manual forms always work."]),
     ("fig", S + "ac_ground.png", "Grounding: removing numbers the clinician never said (scribe/structure.py).", {"id": "ground"}),
     ("h3", "3.8.5 Events, Security and Production Safety"),
-    ("p", "The event bus (Figure {fig:bus}) writes each event to the outbox, runs the subscribed handlers in the same "
+    ("p", "The event bus (`app/events.py`) writes each event to the outbox, runs the subscribed handlers in the same "
           "transaction, and only broadcasts WebSocket notifications **after** the transaction commits, so screens never "
           "show a change that was rolled back. WebSocket messages carry only the event name, never patient data."),
-    ("fig", S + "ac_events.png", "In-process event bus with a transactional outbox (app/events.py).", {"id": "bus"}),
     ("p", "Security measures include role-based permissions (a nurse cannot write a doctor's note; a doctor cannot "
           "register patients), JWT authentication, account lockout for 15 minutes after five wrong passwords, forced "
           "password change for new and reset accounts, sign-out everywhere when a password or role changes, an audit log "
           "entry for every view of a chart, and a public TV display that shows only ticket numbers and initials. In "
-          "production mode the server refuses to start with a weak secret key or a wildcard CORS origin (Figure "
-          "{fig:config}), and no demo accounts are created."),
-    ("fig", S + "ac_config.png", "The server refuses to start with unsafe production settings (app/config.py).", {"id": "config"}),
+          "production mode the server refuses to start with a weak secret key or a wildcard CORS origin, and no demo accounts are created."),
 
     ("h2", "3.9 System Walkthrough: User Interface"),
     ("p", "This section walks through the working system in the order a visit happens, from signing in to a signed "
-          "consultation note, followed by the administrator's screens and the mobile layout. All screenshots were taken "
+          "consultation note, followed by the administrator's screens. All screenshots were taken "
           "from the running application with the demo facility \"General Hospital Ikeja\"; the patients are synthetic. "
           "Where two screens are shown side by side, the caption describes the left one first."),
     ("h3", "3.9.1 Sign In and Account Security"),
     ("p", "Every staff member signs in with a username and password (Figure {fig:login}). A wrong password shows a "
           "neutral message that does not reveal whether the username exists, and repeated failures lock the account for "
-          "15 minutes. Passwords can be changed from any screen (Figure {fig:pw}); new passwords must be at least eight "
+          "15 minutes. Passwords can be changed from any screen; new passwords must be at least eight "
           "characters and mix letters with numbers or symbols, and changing one signs the user out on all other devices."),
     ("fig", P + "01-login.png", "Sign-in page (left) and the message shown after a wrong password (right).",
      {"id": "login", "pair": [P + "01-login.png", P + "02-login-wrong-password.png"], "name": "login_pair", "width": 6.4}),
-    ("fig", P + "14-change-password.png", "Change-password dialog.", {"id": "pw", "width": 4.6}),
     ("h3", "3.9.2 Waiting-Room TV Display (Triage and Doctor Queues)"),
     ("p", "The TV display is a public page meant for a large screen in each waiting area. Figure {fig:tvtri} shows the "
           "**triage** display: the ticket being served and its triage bay on the left, the next patients with their "
@@ -697,31 +654,25 @@ CH3 = [
           "served at once."),
     ("fig", P + "03-tv-display-triage.png", "Waiting-room TV display for the triage queue.", {"id": "tvtri", "width": 5.6}),
     ("fig", P + "04-tv-display-doctor-clinic.png", "Waiting-room TV display for the doctor (OPD) queue.", {"id": "tvopd", "width": 4.5}),
-    ("p", "The display refreshes instantly through the WebSocket whenever any ticket changes, and every 10 seconds as a "
-          "fallback (Figure {fig:tvcode})."),
-    ("fig", S + "ac_tv.png", "React component behind the TV display (frontend/src/pages/TV.jsx).", {"id": "tvcode", "width": 5.8}),
+    ("p", "The display (a React component, `frontend/src/pages/TV.jsx`) refreshes instantly through the WebSocket "
+          "whenever any ticket changes, and every 10 seconds as a fallback."),
     ("h3", "3.9.3 Reception: Finding, Registering and Checking In Patients"),
     ("p", "The receptionist's home screen offers two ways to find a returning patient: scanning the QR code on their "
           "receipt, or searching by phone number, patient number or name. A fuzzy search for \"Okafor\" returns Okafor, "
-          "Okoro and Okon records ranked by similarity (Figure {fig:rec}). Selecting a patient opens their profile with "
+          "Okoro and Okon records ranked by similarity. Selecting a patient opens their profile with "
           "the check-in form, while a new patient is registered with a short form in which only surname, first name, "
           "phone, date of birth and sex are required (Figure {fig:recprof})."),
-    ("fig", P + "05-reception-dashboard.png", "Reception home screen (left) and fuzzy search results for \"Okafor\" (right).",
-     {"id": "rec", "pair": [P + "05-reception-dashboard.png", P + "06-reception-search-results.png"], "name": "rec_pair", "width": 6.4}),
     ("fig", P + "07-reception-patient-profile-checkin.png", "Patient profile with the check-in form (left) and the new patient registration form (right).",
      {"id": "recprof", "pair": [P + "07-reception-patient-profile-checkin.png", P + "09-reception-new-patient-form.png"], "name": "recprof_pair", "width": 6.4}),
     ("p", "On saving, the patient number is generated and sent by SMS, known allergies are highlighted in amber, and the "
-          "receptionist can ask for consent to take a photo (Figure {fig:registered})."),
-    ("fig", P + "10-reception-patient-registered.png", "Patient registered, with known allergies highlighted and the optional photo consent.", {"id": "registered", "width": 5.0}),
+          "receptionist can ask for consent to take a photo."),
     ("p", "Every patient can be given a printable **patient card** with a QR code, and each check-in produces a **visit "
           "receipt** showing the ticket number (here TRI-031), where to go next, payment details and allergies (Figure "
           "{fig:receipt}). On the next visit the receptionist scans the code with a webcam, a handheld scanner, or a "
           "photo of the receipt on the patient's phone, and reception keeps a live overview of both queues with each "
           "patient's priority and waiting time (Figure {fig:scan})."),
-    ("fig", P + "08-reception-patient-card.png", "Printable patient card (left) and the check-in receipt with ticket TRI-031 (right).",
-     {"id": "receipt", "pair": [P + "08-reception-patient-card.png", P + "11-reception-checkin-receipt.png"], "name": "receipt_pair", "width": 6.4}),
-    ("fig", P + "12-reception-qr-scanner.png", "QR receipt scanner (left) and the live queue overview for triage and the doctor queue (right).",
-     {"id": "scan", "pair": [P + "12-reception-qr-scanner.png", P + "13-reception-queue-overview.png"], "name": "scan_pair", "width": 6.4}),
+    ("fig", P + "11-reception-checkin-receipt.png", "Check-in receipt with QR code and the triage ticket number TRI-031.", {"id": "receipt", "width": 4.8}),
+    ("fig", P + "13-reception-queue-overview.png", "Live queue overview for triage and the doctor queue.", {"id": "scan", "width": 4.8}),
     ("h3", "3.9.4 Nurse Triage"),
     ("p", "The nurse sees the triage queue in priority order (Figure {fig:nurse}, left). TRI-025, a NORMAL patient who "
           "has waited 47 minutes, is shown as HIGH with a \"Long wait\" label: this is the aging rule at work. Clicking "
@@ -736,7 +687,7 @@ CH3 = [
           "{fig:nflags})."),
     ("fig", P + "17-nurse-voice-scribe.png", "Voice note with recorded consent (left) and the vital signs filled in from it, for the nurse to check (right).",
      {"id": "nvoice", "pair": [P + "17-nurse-voice-scribe.png", P + "18-nurse-vitals-from-voice.png"], "name": "nvoice_pair", "width": 6.4}),
-    ("fig", P + "19-nurse-triage-saved-with-flags.png", "Triage saved, with abnormal vital signs flagged.", {"id": "nflags", "width": 5.0}),
+    ("fig", P + "19-nurse-triage-saved-with-flags.png", "Triage saved, with abnormal vital signs flagged.", {"id": "nflags", "width": 4.6}),
     ("h3", "3.9.5 Doctor Consultation"),
     ("p", "The doctor's queue works the same way, and calling a patient opens their chart with today's vitals and "
           "complaint (Figure {fig:doc}). The doctor can start from a template such as \"Uncomplicated malaria\", which "
@@ -770,25 +721,12 @@ CH3 = [
                 "report/build/_tmp/27-doctor-visit-signed-journey_crop.png": [P + "27-doctor-visit-signed-journey.png", (820, 0, 2160, 2664)]}}),
     ("h3", "3.9.6 Administration"),
     ("p", "Administrators manage staff accounts: they create accounts with a temporary password that must be changed "
-          "at first login, change roles, reset passwords and deactivate accounts (Figure {fig:staff}). The branding page "
+          "at first login, change roles, reset passwords and deactivate accounts (Figure {fig:staff}). A branding page "
           "sets the facility's name, address, logo and receipt motto with a live receipt preview, and visits on the "
-          "waiver payment track wait for an administrator's approval (Figure {fig:brand})."),
-    ("fig", P + "28-admin-staff-management.png", "Staff management (left) and adding a staff member with a temporary password (right).",
-     {"id": "staff", "pair": [P + "28-admin-staff-management.png", P + "29-admin-add-staff.png"], "name": "staff_pair", "width": 6.4}),
-    ("fig", P + "30-admin-branding-receipt.png", "Facility branding with live receipt preview (left) and a waiver check-in awaiting approval (right).",
-     {"id": "brand", "pair": [P + "30-admin-branding-receipt.png", P + "34-admin-checkin-waiver-approval.png"], "name": "brand_pair", "width": 6.4}),
+          "waiver payment track wait for an administrator's approval."),
+    ("fig", P + "28-admin-staff-management.png", "Staff management.", {"id": "staff", "width": 4.8}),
     ("p", "The records pages give full accountability: the audit log of who did what and when, the system event log "
-          "from the outbox (Figure {fig:audit}), and the queued SMS messages to patients (Figure {fig:sms})."),
-    ("fig", P + "31-admin-audit-log.png", "Audit log (left) and system events from the transactional outbox (right).",
-     {"id": "audit", "pair": [P + "31-admin-audit-log.png", P + "32-admin-system-events.png"], "name": "audit_pair", "width": 6.4}),
-    ("fig", P + "33-admin-sms-messages.png", "Queued SMS messages to patients.", {"id": "sms", "width": 4.8}),
-    ("h3", "3.9.7 Mobile Layout"),
-    ("p", "The same web client adapts to phones and tablets (Figure {fig:mobile}), so a receptionist or nurse can work "
-          "from a phone if a desktop is not available."),
-    ("fig", P + "35-mobile-login.png", "Mobile layout: sign in, reception and queues.",
-     {"id": "mobile", "pair": [P + "35-mobile-login.png", P + "36-mobile-reception.png", P + "37-mobile-queues.png"],
-      "name": "mobile_triple", "width": 4.6}),
-
+          "from the outbox, and the queued SMS messages to patients."),
     ("h2", "3.10 Data Analysis of AraCare Records (Python Notebook)"),
     ("p", "A hospital system is also a source of data for better decisions. To evaluate whether AraCare's rules work and "
           "to show what a manager could learn from the system, I analysed six weeks of records in a Jupyter notebook "
@@ -809,10 +747,9 @@ CH3 = [
           "through an HMO, so the billing module must handle cash and insurance claims equally well."),
     ("h3", "When do patients arrive?"),
     ("fig", F + "ac_arrivals.png", "Check-ins by hour of day and visits per day by weekday.", {"id": "arrive"}),
-    ("fig", F + "ac_daily_volume.png", "Daily outpatient volume over six weeks, with the 7-day moving average.", {"id": "daily"}),
     ("p", "About 42% of all check-ins happen between 08:00 and 11:00, with the peak at 09:00 (Figure {fig:arrive}). "
           "Monday is the busiest day, at around 30 visits, weekdays settle at 20 to 25 and weekends are quiet. The 7-day "
-          "average is flat at about 20 visits per day (Figure {fig:daily}), so the pattern is a weekly cycle rather than "
+          "average is flat at about 20 visits per day, so the pattern is a weekly cycle rather than "
           "growth. **Recommendation:** staff an extra triage bay on weekday mornings, especially Mondays."),
     ("h3", "Does the priority system work?"),
     ("fig", F + "ac_wait_by_priority.png", "Waiting time before being called, by priority tier and queue.", {"id": "wait"}),
