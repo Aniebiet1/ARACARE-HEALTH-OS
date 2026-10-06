@@ -110,7 +110,7 @@ function card(s, x, y, w, h, fill, o = {}) {
     x: MX, y: 3.3, w: 5.2, h: 0.8, fontFace: BF, fontSize: 18, italic: true,
     color: MINT, margin: 0, valign: "top", isTextBox: true, objectName: "Subtitle",
   });
-  s.addText("[Your name]  ·  [Matric no.]  ·  Supervisor: [Name]  ·  [Department]", {
+  s.addText("Joseph Cosmos Aniebiet  ·  22/SC/CO/1301  ·  Computer Science", {
     x: MX, y: 4.55, w: 6.2, h: 0.3, fontFace: BF, fontSize: 12, color: ONDARK,
     margin: 0, isTextBox: true, objectName: "Presenter details",
   });
