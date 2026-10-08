@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, false
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, false, true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...db import Base, uid, utcnow
@@ -15,6 +15,45 @@ class Facility(Base):
     email: Mapped[str | None] = mapped_column(String(120))
     motto: Mapped[str | None] = mapped_column(String(160))
     logo_path: Mapped[str | None] = mapped_column(String(300))
+    # hospital profile, captured by the admin's first-run onboarding
+    facility_type: Mapped[str | None] = mapped_column(String(30))     # general | teaching | specialist | primary | clinic
+    ownership: Mapped[str | None] = mapped_column(String(20))         # federal | state | private | mission | ngo
+    license_number: Mapped[str | None] = mapped_column(String(60))    # state MoH / HEFAMAA registration
+    city: Mapped[str | None] = mapped_column(String(80))
+    lga: Mapped[str | None] = mapped_column(String(80))
+    emergency_phone: Mapped[str | None] = mapped_column(String(60))
+    website: Mapped[str | None] = mapped_column(String(160))
+    bed_capacity: Mapped[int | None] = mapped_column(Integer)
+    open_24h: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    onboarded_at = mapped_column(DateTime, nullable=True)            # NULL: admin still sees the setup wizard
+    onboarded_by: Mapped[str | None] = mapped_column(String(36))
+
+
+class Department(Base):
+    """A unit staff belong to and AraPulse routes to: clinical, ward, diagnostic, support or admin."""
+    __tablename__ = "departments"
+    __table_args__ = (UniqueConstraint("facility_id", "code"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    facility_id: Mapped[str] = mapped_column(String(36), ForeignKey("facilities.id"), index=True)
+    code: Mapped[str] = mapped_column(String(20))                     # EMERG, MED, LAB, PHARM ...
+    name: Mapped[str] = mapped_column(String(120))
+    kind: Mapped[str] = mapped_column(String(15), default="clinical")  # clinical | ward | diagnostic | support | admin
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    created_at = mapped_column(DateTime, default=utcnow)
+
+
+class Ward(Base):
+    """A physical location an emergency page points to (Ward 3, A&E Bay, ICU)."""
+    __tablename__ = "wards"
+    __table_args__ = (UniqueConstraint("facility_id", "code"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    facility_id: Mapped[str] = mapped_column(String(36), ForeignKey("facilities.id"), index=True)
+    department_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("departments.id"))
+    code: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(120))
+    floor: Mapped[str | None] = mapped_column(String(40))
+    bed_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
 
 class Staff(Base):
@@ -23,7 +62,11 @@ class Staff(Base):
     facility_id: Mapped[str] = mapped_column(String(36), ForeignKey("facilities.id"), index=True)
     username: Mapped[str] = mapped_column(String(60), unique=True)
     full_name: Mapped[str] = mapped_column(String(120))
-    role: Mapped[str] = mapped_column(String(20))  # reception | nurse | doctor | admin
+    role: Mapped[str] = mapped_column(String(20))  # reception | nurse | doctor | lab | pharmacy | admin
+    position: Mapped[str | None] = mapped_column(String(80))          # "Consultant Physician", "Matron", ...
+    department_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("departments.id"), index=True)
+    phone: Mapped[str | None] = mapped_column(String(30))
+    on_duty: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())  # AraPulse paging target
     password_hash: Mapped[str] = mapped_column(String(200))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     # bumped on password change/reset or deactivation: every token issued before is rejected

@@ -1,12 +1,14 @@
 """Mock data for development and demos: patients, weeks of visit history and a live queue for today.
 
     python -m app.mock_data            # fills an empty database (refuses if patients already exist)
-    python -m app.mock_data --reset    # wipes patients, visits, queues, notes, logs; then fills
+    python -m app.mock_data --reset    # wipes patients, visits, queues, notes, lab results, logs; then fills
 
 Everything is deterministic for a given --seed. History is written directly with backdated timestamps, following
 the same rules as the live code (ticket numbering per department/day, journey cascade, triage flags, allergy
 hard-block, content hash on signed notes). Today's visits are cut at the current time, so the queues show patients
-waiting, called, in service and done. Refuses to run with ARACARE_ENV=production.
+waiting, called, in service and done. Lab orders get results (a few critical) and most prescriptions are
+dispensed. The hospital profile is filled in and marked onboarded, with every suggested department and ward, so a
+demo database looks like a hospital that is already running. Refuses to run with ARACARE_ENV=production.
 """
 import argparse
 import hashlib
@@ -21,7 +23,7 @@ from sqlalchemy import delete, select
 from .config import settings
 from .db import TZ, SessionLocal, local_today, uid, utcnow
 from .modules.core.models import AuditLog, Consent, Counter, Facility, Message, OutboxEvent, Staff
-from .modules.core.security import hash_password, next_counter
+from .modules.core.security import next_counter
 from .modules.ehr import clinical_rules as rules
 from .modules.ehr.models import (AllergyRecord, ClinicalNote, Diagnosis, Icd10, LabOrder, MedicationOrder,
                                  NoteAddendum, Vitals)
@@ -30,15 +32,32 @@ from .modules.queues.service import PREFIX
 from .modules.registration import service as reg
 from .modules.registration.models import Patient, Visit
 from .modules.scribe.models import ScribeSession
+from .modules.org.catalogue import SUGGESTED, create_suggested
 from .schema import migrate
-from .seed import seed
+from .seed import add_demo_staff, seed
+
+try:                                   # AraPulse demo conversations, pages and alerts (optional module)
+    from .modules.pulse import demo as pulse_demo
+except ImportError:
+    pulse_demo = None
 
 log = logging.getLogger("aracare.mock")
 
-# Extra staff on top of the four demo accounts from seed.py (same password).
-MOCK_STAFF = [("reception2", "Tolu Bankole", "reception"), ("nurse2", "Nurse Halima Bello", "nurse"),
-              ("nurse3", "Nurse Grace Etim", "nurse"), ("doctor2", "Dr. Funmilayo Adebayo", "doctor"),
-              ("doctor3", "Dr. Musa Abdullahi", "doctor")]
+# Extra staff on top of the demo accounts from seed.py (same password): (username, name, role, position, department)
+MOCK_STAFF = [("reception2", "Tolu Bankole", "reception", "Health Records Officer", "REC"),
+              ("nurse2", "Nurse Halima Bello", "nurse", "Senior Nursing Officer", "EMERG"),
+              ("nurse3", "Nurse Grace Etim", "nurse", "Ward Sister", "MED"),
+              ("nurse4", "Matron Comfort Akpan", "nurse", "Matron", "NURS"),
+              ("nurse5", "Nurse Ngozi Okeke", "nurse", "Midwife", "OBG"),
+              ("nurse6", "Nurse Aisha Garba", "nurse", "Staff Nurse", "PAED"),
+              ("doctor2", "Dr. Funmilayo Adebayo", "doctor", "Consultant", "MED"),
+              ("doctor3", "Dr. Musa Abdullahi", "doctor", "Registrar", "EMERG"),
+              ("doctor4", "Dr. Ifeoma Chukwu", "doctor", "Senior Registrar", "OBG"),
+              ("doctor5", "Dr. Kunle Ajayi", "doctor", "Consultant", "PAED"),
+              ("doctor6", "Dr. Bashir Yusuf", "doctor", "House Officer", "SURG"),
+              ("lab2", "Emmanuel Okon", "lab", "Lab Technician", "LAB"),
+              ("pharmacy2", "Blessing Edet", "pharmacy", "Pharmacy Technician", "PHARM")]
+OFF_DUTY = {"doctor6", "nurse6"}       # someone is always off shift
 
 TRIAGE_COUNTERS = ["Triage Bay 1", "Triage Bay 2"]
 OPD_COUNTERS = ["Consulting Room 1", "Consulting Room 2", "Consulting Room 3"]
@@ -112,6 +131,47 @@ LABS = {
     "LAB-HBSAG": "Hepatitis B surface antigen", "LAB-VDRL": "VDRL", "LAB-GXT": "Blood group & genotype",
     "LAB-SAFB": "Sputum AFB / GeneXpert", "LAB-SMCS": "Stool microscopy", "LAB-HPY": "H. pylori antigen",
 }
+
+# Lab results: test -> (normal, abnormal, critical or None); each a function of the random generator.
+LAB_RESULTS = {
+    "LAB-MAL": (lambda r: "Negative", lambda r: "Positive (P. falciparum)", None),
+    "LAB-MP": (lambda r: "No malaria parasites seen",
+               lambda r: f"P. falciparum seen ({r.choice(['+', '++', '+++'])})",
+               lambda r: f"P. falciparum ++++, parasitaemia {r.randint(5, 12)}%"),
+    "LAB-FBC": (lambda r: f"Hb {r.uniform(12, 15.5):.1f} g/dL, WBC {r.uniform(4, 10):.1f} x10^9/L, "
+                          f"Platelets {r.randint(160, 380)} x10^9/L",
+                lambda r: f"Hb {r.uniform(9, 11):.1f} g/dL, WBC {r.uniform(11.5, 18):.1f} x10^9/L (neutrophilia), "
+                          f"Platelets {r.randint(140, 300)} x10^9/L",
+                lambda r: f"Hb {r.uniform(4.2, 5.9):.1f} g/dL, Platelets {r.randint(18, 45)} x10^9/L"),
+    "LAB-TYP": (lambda r: "O and H titres below 1:80", lambda r: "O 1:160, H 1:160", None),
+    "LAB-FBS": (lambda r: f"{r.uniform(3.9, 5.6):.1f} mmol/L", lambda r: f"{r.uniform(7.2, 13.5):.1f} mmol/L",
+                lambda r: f"{r.uniform(25, 33):.1f} mmol/L"),
+    "LAB-HBA1C": (lambda r: f"{r.uniform(4.8, 5.9):.1f}%", lambda r: f"{r.uniform(7.0, 10.5):.1f}%", None),
+    "LAB-UA": (lambda r: "Protein nil, glucose nil, blood nil",
+               lambda r: "Protein ++, leucocytes ++, nitrites positive", None),
+    "LAB-UMCS": (lambda r: "No significant growth",
+                 lambda r: "E. coli >10^5 CFU/ml, sensitive to nitrofurantoin and ceftriaxone", None),
+    "LAB-CXR": (lambda r: "Clear lung fields, normal heart size", lambda r: "Right lower zone consolidation",
+                lambda r: "Large left pneumothorax with mediastinal shift"),
+    "LAB-PCV": (lambda r: f"{r.randint(34, 45)}%", lambda r: f"{r.randint(24, 30)}%",
+                lambda r: f"{r.randint(11, 15)}%"),
+    "LAB-EUC": (lambda r: f"Na {r.randint(135, 144)}, K {r.uniform(3.6, 4.9):.1f}, Urea {r.uniform(2.8, 6.5):.1f} "
+                          f"mmol/L, Creatinine {r.randint(60, 105)} umol/L",
+                lambda r: f"Urea {r.uniform(8, 14):.1f} mmol/L, Creatinine {r.randint(140, 260)} umol/L",
+                lambda r: f"K {r.uniform(6.6, 7.4):.1f} mmol/L, Creatinine {r.randint(520, 780)} umol/L"),
+    "LAB-LIP": (lambda r: f"Total cholesterol {r.uniform(3.8, 5.0):.1f}, LDL {r.uniform(2.0, 3.0):.1f} mmol/L",
+                lambda r: f"Total cholesterol {r.uniform(6.2, 7.8):.1f}, LDL {r.uniform(4.1, 5.2):.1f} mmol/L",
+                None),
+    "LAB-HIV": (lambda r: "Non-reactive", lambda r: "Reactive: referred for confirmation and counselling", None),
+    "LAB-HBSAG": (lambda r: "Negative", lambda r: "Positive", None),
+    "LAB-VDRL": (lambda r: "Non-reactive", lambda r: "Reactive 1:8", None),
+    "LAB-GXT": (lambda r: f"{r.choice(['O', 'A', 'B'])} Rh D positive, genotype {r.choice(['AA', 'AA', 'AS'])}",
+                lambda r: f"{r.choice(['O', 'A', 'B'])} Rh D positive, genotype SS", None),
+    "LAB-SAFB": (lambda r: "MTB not detected", lambda r: "MTB detected, rifampicin resistance not detected", None),
+    "LAB-SMCS": (lambda r: "No ova or cysts seen", lambda r: "Ova of Ascaris lumbricoides seen", None),
+    "LAB-HPY": (lambda r: "Negative", lambda r: "Positive", None),
+}
+SLOW_LABS = {"LAB-UMCS": (24, 60), "LAB-SAFB": (20, 48)}     # hours: cultures and GeneXpert batches
 
 # Each drug: (adult, child) as (name, dose, frequency, days, route). child=None means not for under-12s.
 DRUGS = {
@@ -879,6 +939,7 @@ class Generator:
         opd_step.status, opd_step.completed_at = "completed", o_done
         j.status, j.completed_at, v.status = "completed", o_done, "completed"
         self.event(o_done, "JourneyClinicalCompleted", {"visit_id": v.id, "deferred": deferred})
+        self.lab_and_pharmacy(p, lab_rows, med_rows, o_done, priority, happened)
         if r.random() < 0.03:
             later = o_done + timedelta(hours=r.uniform(1, 30))
             if happened(later):
@@ -890,6 +951,47 @@ class Generator:
                                       reason=r.choice(["Result review", "Telephone follow-up", "Correction"])))
                 self.audit(later, doctor, "addendum", "clinical_note", note.id, p.id)
         return v
+
+    def lab_and_pharmacy(self, p, lab_rows, med_rows, signed_at, priority, happened):
+        """After the note is signed: the lab works the orders (a few come back critical), the pharmacy dispenses."""
+        r = self.r
+        arrive = signed_at + timedelta(minutes=r.uniform(10, 60))          # walks over, pays, gives the sample
+        for o in lab_rows:
+            if r.random() < 0.02:
+                continue                                                  # never went to the lab
+            started = arrive + timedelta(minutes=r.uniform(2, 25))
+            hours = SLOW_LABS.get(o.test_code)
+            done = started + (timedelta(hours=r.uniform(*hours)) if hours else timedelta(minutes=r.uniform(15, 140)))
+            if not happened(started):
+                continue
+            o.status, o.started_at = "in_progress", started
+            if not happened(done):
+                continue
+            normal, abnormal, critical = LAB_RESULTS.get(o.test_code, (lambda _: "Within normal limits", None, None))
+            x = r.random()
+            crit_chance = 0.2 if priority == "EMERGENCY" else 0.03
+            pos_chance = 0.55 if o.test_code in ("LAB-MAL", "LAB-MP") else 0.25
+            if critical and x < crit_chance:
+                flag, text = "critical", critical(r)
+            elif abnormal and x < crit_chance + pos_chance:
+                flag, text = "abnormal", abnormal(r)
+            else:
+                flag, text = "normal", normal(r)
+            scientist = self.pick("lab")
+            o.status, o.result_text, o.result_flag = "resulted", text, flag
+            o.resulted_by, o.resulted_at = scientist.id, done
+            self.event(done, "LabResulted", {"visit_id": o.visit_id, "patient_id": p.id, "order_id": o.id,
+                                             "test": o.test_name, "flag": flag})
+            self.audit(done, scientist, "result", "lab_order", o.id, p.id, detail=flag)
+        dispense_at = signed_at + timedelta(minutes=r.uniform(8, 45))
+        if med_rows and r.random() < 0.93 and happened(dispense_at):        # some buy their drugs outside
+            pharmacist = self.pick("pharmacy")
+            for m in med_rows:
+                m.status, m.dispensed_by, m.dispensed_at = "dispensed", pharmacist.id, dispense_at
+            self.event(dispense_at, "Dispensed", {"visit_id": med_rows[0].visit_id, "patient_id": p.id,
+                                                  "drugs": [m.drug_name for m in med_rows]})
+            self.audit(dispense_at, pharmacist, "dispense", "medication_order", med_rows[0].id, p.id,
+                       detail=f"{len(med_rows)} items")
 
     def ticket(self, day, dept, v, p, step, tier, at) -> Ticket:
         t = self.add(Ticket(id=uid(), facility_id=self.fac.id, department=dept, day=day, journey_step_id=step.id,
@@ -998,22 +1100,36 @@ MOCK_TABLES = [NoteAddendum, Diagnosis, ClinicalNote, LabOrder, MedicationOrder,
 
 
 def reset(db):
+    if pulse_demo is not None and hasattr(pulse_demo, "reset"):
+        pulse_demo.reset(db)            # AraPulse rows point at patients and visits: they go first
     for model in MOCK_TABLES:
         db.execute(delete(model))
     db.execute(delete(Counter).where(Counter.key.like("patient_number:%")))
     db.commit()
 
 
+PROFILE = {"address": "1 Hospital Road, Alausa", "phone": "0803 000 1234", "email": "info@ghikeja.example.ng",
+           "motto": "Quality care, close to home", "facility_type": "general", "ownership": "state",
+           "license_number": "LSMOH/HF/2014/0457", "city": "Ikeja", "lga": "Ikeja", "emergency_phone": "0809 112 2112",
+           "website": "https://ghikeja.example.ng", "bed_capacity": 184}
+
+
 def ensure_staff(db, password: str):
+    """A demo database looks like a hospital that is already running: full profile, onboarded, every suggested
+    department and ward, and every demo account with a position and department."""
     fac = db.scalar(select(Facility))
-    if not fac.address:
-        fac.address, fac.phone = "1 Hospital Road, Ikeja, Lagos", "0803 000 1234"
-        fac.email, fac.motto = "info@ghikeja.example.ng", "Quality care, close to home"
-    known = set(db.scalars(select(Staff.username)).all())
-    for username, name, role in MOCK_STAFF:
-        if username not in known:
-            db.add(Staff(id=uid(), facility_id=fac.id, username=username, full_name=name, role=role,
-                         password_hash=hash_password(password)))
+    for k, v in PROFILE.items():
+        if getattr(fac, k) in (None, ""):
+            setattr(fac, k, v)
+    create_suggested(db, fac.id, [code for code, *_ in SUGGESTED])
+    add_demo_staff(db, fac, password, MOCK_STAFF)
+    db.flush()
+    if fac.onboarded_at is None:
+        admin = db.scalar(select(Staff).where(Staff.facility_id == fac.id, Staff.role == "admin")
+                          .order_by(Staff.username))
+        fac.onboarded_at, fac.onboarded_by = utcnow() - timedelta(days=60), admin.id if admin else None
+    for s in db.scalars(select(Staff).where(Staff.username.in_(OFF_DUTY))).all():
+        s.on_duty = False
     db.commit()
 
 
@@ -1038,11 +1154,14 @@ def main(argv=None):
         ensure_staff(db, "demo123")
         g = Generator(db, random.Random(args.seed), args.patients, args.days, args.today)
         g.run()
+        if pulse_demo is not None and hasattr(pulse_demo, "fill"):
+            pulse_demo.fill(db, g.fac)
+            db.commit()
         log.info("Mock data written to %s", settings.database_url)
         for table, n in sorted(g.counts.items()):
             log.info("  %-20s %6d", table, n)
-        log.info("Staff logins (password demo123): reception, reception2, nurse, nurse2, nurse3, "
-                 "doctor, doctor2, doctor3, admin")
+        log.info("Staff logins (password demo123): reception, nurse, doctor, lab, pharmacy, admin, plus %s",
+                 ", ".join(u for u, *_ in MOCK_STAFF))
 
 
 if __name__ == "__main__":

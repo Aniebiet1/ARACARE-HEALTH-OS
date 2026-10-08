@@ -12,10 +12,16 @@ from .db import SessionLocal
 from .events import subscribe
 from .modules.core.router import router as core_router
 from .modules.ehr.router import router as ehr_router
+from .modules.insights.router import router as insights_router
+from .modules.lab.router import router as lab_router
+from .modules.org.router import router as org_router
+from .modules.pulse import service as pulse_service
+from .modules.pulse.router import router as pulse_router
 from .modules.queues import handlers as _queue_handlers  # noqa: F401  (registers event subscribers)
 from .modules.queues import service as queue_service
 from .modules.queues.router import router as queue_router
 from .modules.registration.router import router as reg_router
+from .modules.scribe import asr, structure
 from .modules.scribe.router import router as scribe_router
 from .realtime import hub
 from .schema import migrate
@@ -42,6 +48,7 @@ def log_event(db, ev):
 def _sweep_once() -> int:
     with SessionLocal() as db:
         changed = queue_service.tick(db)
+        changed += pulse_service.tick(db)
         db.commit()
         return changed
 
@@ -56,6 +63,15 @@ async def _sweeper():
             log.exception("queue sweeper error")
 
 
+def _warm_scribe():
+    """Load Whisper and the LLM in the background so the first dictation doesn't wait ~30 s for them."""
+    for name, fn in (("Whisper", asr.warm), ("LLM", structure.warm)):
+        try:
+            fn()
+        except Exception as e:  # Ollama not running etc.: drafting still falls back to rules
+            log.warning("Scribe warm-up: %s not loaded (%s)", name, e)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.check()
@@ -63,6 +79,8 @@ async def lifespan(app: FastAPI):
     seed()
     hub.loop = asyncio.get_running_loop()
     task = asyncio.create_task(_sweeper())
+    if settings.scribe_warmup:
+        asyncio.get_running_loop().run_in_executor(None, _warm_scribe)
     log.info("AraCare %s started (env=%s)", VERSION, settings.env)
     yield
     task.cancel()
@@ -75,7 +93,8 @@ app = FastAPI(title="AraCare Health OS", version=VERSION, lifespan=lifespan,
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origin_list, allow_credentials=False,
                    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Authorization", "Content-Type"])
-for r in (core_router, reg_router, queue_router, ehr_router, scribe_router):
+for r in (core_router, reg_router, queue_router, ehr_router, scribe_router, org_router, insights_router,
+          lab_router, pulse_router):
     app.include_router(r, prefix="/api")
 
 

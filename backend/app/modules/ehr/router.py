@@ -180,6 +180,10 @@ def _note_view(db: Session, n: ClinicalNote | None):
             "addenda": [{"text": a.text, "reason": a.reason, "at": a.added_at.isoformat()} for a in adds]}
 
 
+def _iso(t):
+    return t.isoformat() if t else None
+
+
 @router.get("/visits/{visit_id}")
 def visit_workspace(visit_id: str, staff: Staff = Depends(require(*CLINICAL)), db: Session = Depends(get_db)):
     v = _visit(db, staff, visit_id)
@@ -192,10 +196,13 @@ def visit_workspace(visit_id: str, staff: Staff = Depends(require(*CLINICAL)), d
     return {"visit": {"id": v.id, "type": v.visit_type, "status": v.status, "patient_id": v.patient_id},
             "vitals": _vitals_view(vit) if vit else None, "note": _note_view(db, note),
             "lab_orders": [{"id": l.id, "test_code": l.test_code, "test_name": l.test_name,
-                            "priority": l.priority, "status": l.status} for l in labs],
+                            "priority": l.priority, "status": l.status, "started_at": _iso(l.started_at),
+                            "result_text": l.result_text, "result_flag": l.result_flag,
+                            "resulted_at": _iso(l.resulted_at)} for l in labs],
             "prescriptions": [{"id": m.id, "drug_name": m.drug_name, "dose": m.dose, "frequency": m.frequency,
                                "duration_days": m.duration_days, "status": m.status,
-                               "allergy_override_reason": m.allergy_override_reason} for m in meds]}
+                               "allergy_override_reason": m.allergy_override_reason,
+                               "dispensed_at": _iso(m.dispensed_at)} for m in meds]}
 
 
 class NoteIn(BaseModel):

@@ -44,8 +44,14 @@ def _load():
     return _model
 
 
+def warm() -> None:
+    """Load the model ahead of the first dictation (downloads the weights on a fresh box)."""
+    if available():
+        _load()
+
+
 def transcribe(path: str, language: str | None = "en") -> str:
     model = _load()
-    segments, _info = model.transcribe(path, language=language, vad_filter=True, beam_size=5,
+    segments, _info = model.transcribe(path, language=language, vad_filter=True, beam_size=settings.whisper_beam_size,
                                        initial_prompt=MEDICAL_PROMPT, condition_on_previous_text=False)
     return " ".join(s.text.strip() for s in segments).strip()

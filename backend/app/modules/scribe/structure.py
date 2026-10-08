@@ -35,6 +35,13 @@ class NurseDraft(BaseModel):
     triage_priority: str = "NORMAL"
 
 
+class NurseLLM(BaseModel):
+    """What the LLM is asked for at triage. Vitals come from the regex: they must be digits in the transcript to
+    survive grounding anyway, and writing them out as JSON tripled the draft time on a laptop CPU."""
+    chief_complaint: str = ""
+    triage_priority: str = "NORMAL"
+
+
 class DrugSuggestion(BaseModel):
     drug_name: str
     dose: str | None = None
@@ -150,12 +157,33 @@ def llm_engine_name() -> str:
     return "rules" if settings.llm_engine == "rules" else f"ollama:{settings.ollama_model}"
 
 
+# warm-up and real calls must share these, or Ollama reloads the model to resize its context
+_OPTIONS = {"temperature": 0, "num_ctx": 4096}
+
+
+def _required(schema: dict) -> dict:
+    """Mark every field required (still nullable). Small models otherwise skip defaulted fields, e.g. all vitals."""
+    for node in [schema, *schema.get("$defs", {}).values()]:
+        if "properties" in node:
+            node["required"] = list(node["properties"])
+    return schema
+
+
+def warm() -> None:
+    """Load the LLM into RAM ahead of the first draft. An empty chat only loads the model."""
+    if settings.llm_engine == "rules":
+        return
+    httpx.post(f"{settings.ollama_url}/api/chat", timeout=settings.ollama_timeout, json={
+        "model": settings.ollama_model, "messages": [], "keep_alive": settings.ollama_keep_alive,
+        "options": _OPTIONS}).raise_for_status()
+
+
 def _ollama(role: str, transcript: str, context: str) -> dict:
-    schema = (NurseDraft if role == "nurse" else DoctorDraft).model_json_schema()
+    schema = _required((NurseLLM if role == "nurse" else DoctorDraft).model_json_schema())
     r = httpx.post(f"{settings.ollama_url}/api/chat", timeout=settings.ollama_timeout, json={
         "model": settings.ollama_model, "stream": False, "format": schema,
         "think": False,  # thinking models (qwen3) otherwise burn the timeout reasoning before the JSON
-        "options": {"temperature": 0, "num_ctx": 4096},
+        "keep_alive": settings.ollama_keep_alive, "options": _OPTIONS,
         "messages": [{"role": "system", "content": NURSE_SYSTEM if role == "nurse" else DOCTOR_SYSTEM},
                      {"role": "user", "content": f"CONTEXT (do not copy into the note unless dictated):\n{context}\n\n"
                                                  f"DICTATION:\n{transcript}"}]})
@@ -178,6 +206,11 @@ def build_draft(role: str, transcript: str, context: str = "") -> tuple[dict, li
         draft = rules_nurse(transcript) if role == "nurse" else rules_doctor(transcript)
     dropped: list[str] = []
     if role == "nurse":
+        if engine.startswith("ollama"):   # vitals come from the regex unless the LLM gave them
+            fallback = rules_nurse(transcript)
+            draft.vitals = NurseVitals(**{k: v if v is not None else getattr(fallback.vitals, k)
+                                          for k, v in draft.vitals.model_dump().items()})
+            draft.chief_complaint = draft.chief_complaint or fallback.chief_complaint
         draft.vitals, dropped = ground_vitals(draft.vitals, transcript)
         if draft.triage_priority not in ("NORMAL", "HIGH", "EMERGENCY"):
             draft.triage_priority = "NORMAL"

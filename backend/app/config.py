@@ -40,15 +40,22 @@ class Settings(BaseSettings):
     est_triage_minutes: int = 5
     est_opd_minutes: int = 12
 
+    # AraPulse (internal comms): unacknowledged emergency pages widen to every on-duty doctor, then all doctors
+    page_escalate_seconds: int = 120
+    critical_result_escalate_minutes: int = 10
+
     # AI scribe (all local)
     asr_engine: str = "auto"               # auto | faster-whisper | none
     whisper_model: str = "small"
     whisper_device: str = "cpu"
     whisper_compute: str = "int8"
+    whisper_beam_size: int = 1             # 1 = greedy: ~2-3x faster on CPU than beam search, near-identical text
     llm_engine: str = "auto"               # auto | ollama | rules
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:7b"
     ollama_timeout: int = 120
+    ollama_keep_alive: str = "24h"         # keep the model in RAM; reloading it costs ~20 s on a laptop CPU
+    scribe_warmup: bool = True             # load Whisper + the LLM at startup so the first dictation isn't slow
 
     @property
     def is_production(self) -> bool:

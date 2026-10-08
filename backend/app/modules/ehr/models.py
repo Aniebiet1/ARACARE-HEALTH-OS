@@ -100,8 +100,14 @@ class LabOrder(Base):
     test_code: Mapped[str] = mapped_column(String(20))
     test_name: Mapped[str] = mapped_column(String(100))
     priority: Mapped[str] = mapped_column(String(10), default="routine")
-    status: Mapped[str] = mapped_column(String(15), default="ordered")  # ordered | sent (lab module deferred)
+    # ordered -> sent (note signed) -> in_progress (lab started) -> resulted
+    status: Mapped[str] = mapped_column(String(15), default="ordered")
     ordered_at = mapped_column(DateTime, default=utcnow)
+    started_at = mapped_column(DateTime, nullable=True)
+    result_text: Mapped[str | None] = mapped_column(Text)
+    result_flag: Mapped[str | None] = mapped_column(String(10))       # normal | abnormal | critical
+    resulted_by: Mapped[str | None] = mapped_column(String(36))
+    resulted_at = mapped_column(DateTime, nullable=True)
 
 
 class MedicationOrder(Base):
@@ -117,5 +123,7 @@ class MedicationOrder(Base):
     route: Mapped[str] = mapped_column(String(10), default="oral")
     instructions: Mapped[str | None] = mapped_column(Text)
     allergy_override_reason: Mapped[str | None] = mapped_column(Text)  # set only when a conflict was knowingly overridden
-    status: Mapped[str] = mapped_column(String(15), default="ordered")  # ordered | sent (pharmacy module deferred)
+    status: Mapped[str] = mapped_column(String(15), default="ordered")  # ordered -> sent -> dispensed
     ordered_at = mapped_column(DateTime, default=utcnow)
+    dispensed_by: Mapped[str | None] = mapped_column(String(36))
+    dispensed_at = mapped_column(DateTime, nullable=True)
