@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 
@@ -17,6 +18,7 @@ from . import asr, service, structure
 from .models import ScribeSession
 
 router = APIRouter(prefix="/scribe", tags=["ai-scribe"])
+log = logging.getLogger("aracare.scribe")
 AUDIO_EXT = {".webm", ".wav", ".mp3", ".m4a", ".ogg", ".mp4", ".aac", ".flac"}
 ROLES = ("nurse", "doctor")
 
@@ -72,7 +74,15 @@ async def transcribe(visit_id: str = Form(...), language: str = Form("en"), audi
         with os.fdopen(fd, "wb") as f:
             f.write(data)
         from starlette.concurrency import run_in_threadpool
-        text = await run_in_threadpool(asr.transcribe, path, language or None)
+        try:
+            text = await run_in_threadpool(asr.transcribe, path, language or None)
+        except asr.ASRUnavailable:
+            log.exception("Speech-to-text failed")
+            raise HTTPException(503, "Speech-to-text could not start because the server is low on memory. "
+                                     "Close some programs on the server and try again, or type the note instead.")
+        except Exception:
+            log.exception("Could not transcribe %s upload", suffix)
+            raise HTTPException(422, "That recording could not be read. Try recording again, or type the note instead.")
     finally:
         os.remove(path)          # audio is never retained
     audit(db, staff, "scribe_transcribe", "visit", v.id, v.patient_id)

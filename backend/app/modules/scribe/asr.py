@@ -33,14 +33,31 @@ def available() -> bool:
     return engine_name() != "none"
 
 
+FALLBACK_MODEL = "base"   # ~150 MB in int8: fits on a busy 8 GB laptop where "small" does not
+
+
+class ASRUnavailable(RuntimeError):
+    """Whisper could not be loaded or run (usually not enough free memory)."""
+
+
 def _load():
     global _model
     with _lock:
         if _model is None:
             from faster_whisper import WhisperModel
-            log.info("Loading Whisper model %s (first run downloads the weights)", settings.whisper_model)
-            _model = WhisperModel(settings.whisper_model, device=settings.whisper_device,
-                                  compute_type=settings.whisper_compute)
+            names = [settings.whisper_model]
+            if settings.whisper_model not in ("tiny", "tiny.en", FALLBACK_MODEL):
+                names.append(FALLBACK_MODEL)
+            for i, name in enumerate(names):
+                log.info("Loading Whisper model %s (first run downloads the weights)", name)
+                try:
+                    _model = WhisperModel(name, device=settings.whisper_device, compute_type=settings.whisper_compute)
+                    break
+                except (RuntimeError, MemoryError) as e:   # ctranslate2 reports out-of-memory as "mkl_malloc: failed to allocate memory"
+                    if i + 1 < len(names):
+                        log.warning("Whisper %s could not load (%s); falling back to %s", name, e, names[i + 1])
+                    else:
+                        raise ASRUnavailable(f"Whisper could not load: {e}") from e
     return _model
 
 
